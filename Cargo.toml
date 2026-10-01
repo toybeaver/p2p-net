@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+    "ak-lib",
+    "ak-p2p",
+    "ak-signalsv",
+]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["default", "net", "macros", "rt", "rt-multi-thread", "io-util"] }
