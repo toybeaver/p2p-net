@@ -5,11 +5,15 @@ version = 4
 [[package]]
 name = "ak-lib"
 version = "0.1.0"
+dependencies = [
+ "tokio",
+]
 
 [[package]]
 name = "ak-p2p"
 version = "0.1.0"
 dependencies = [
+ "ak-lib",
  "tokio",
 ]
 
@@ -17,6 +21,7 @@ dependencies = [
 name = "ak-signalsv"
 version = "0.1.0"
 dependencies = [
+ "ak-lib",
  "tokio",
 ]
 

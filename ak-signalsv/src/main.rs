@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+
+use ak_lib::{AddressInfo, AddressRequest, StreamObject};
 
 
 const DEFAULT_ADDR: &str = "0.0.0.0:3000";
@@ -28,53 +29,37 @@ impl SigServ {
 
     pub async fn accept_and_process(&mut self) -> std::io::Result<()>
     {
-        let (mut socket, addr) = self.listener.accept().await?;
+        let (mut socket, peer_addr) = self.listener.accept().await?;
 
-        // Request:
-        // 50bytes => the name of the peer
-        // 50bytes => the name of the target
-        let mut name_buf = [0;50];
-        socket.read_exact(&mut name_buf).await?;
-        let name = String::from_utf8_lossy(&name_buf);
+        let addr_req = AddressRequest::read_from_stream(&mut socket).await?;
 
         self.ids
-            .entry(addr)
+            .entry(peer_addr)
             .and_modify(|e| {
-                e.name = name.to_string();
-                e.addr = addr;
+                e.name = addr_req.peer_name().to_string();
+                e.addr = peer_addr;
             })
-            .or_insert(PeerId { addr, name: name.to_string() });
+            .or_insert(PeerId { addr: peer_addr, name: addr_req.peer_name().to_string() });
 
-        let mut target_buf = [0;50];
-        socket.read_exact(&mut target_buf).await?;
-        let target = String::from_utf8_lossy(&target_buf);
+        println!("! New connection: {} for peer \"{}\" looking for target \"{}\"",
+            peer_addr,
+            addr_req.peer_name(),
+            addr_req.peer_target());
 
-        println!("! New connection: {} for peer \"{}\" looking for target \"{}\"", addr, name, target);
+        AddressInfo::from_socket_addr(&peer_addr)
+            .write_to_stream(&mut socket)
+            .await?;
 
-        // Response:
-        // 1byte => peer address size
-        // nbute => peer address
-        // 1byte => 0 if target doesn't exist, >0 if it does (1byte is the size of next packet);
-        // nbyte => the target address
-        let peer_addr = addr.to_string().into_bytes();
-        let mut payload = Vec::new();
-        payload.push(peer_addr.len() as u8);
-        let payload = payload.into_iter().chain(peer_addr.into_iter()).collect::<Vec<u8>>();
-        socket.write_all(&payload).await?;
-
-        match self.ids.iter().find(|(_, id)| id.name == target) {
+        match self.ids.iter().find(|(_, id)| id.name == addr_req.peer_target()) {
             Some(id) => {
-                println!("! Target \"{}\" exists, sending connection info.", target);
-                let addr = id.0.to_string().into_bytes();
-
-                let mut payload = Vec::new();
-                payload.push(addr.len() as u8);
-                let payload = payload.into_iter().chain(addr.into_iter()).collect::<Vec<u8>>();
-                socket.write_all(&payload).await?;
+                println!("! Target \"{}\" exists, sending connection info.", addr_req.peer_target());
+                AddressInfo::from_socket_addr(id.0)
+                    .write_to_stream(&mut socket)
+                    .await?;
             }
             None => {
-                println!("! Target \"{}\" still doesn't exist", target);
-                socket.write_u8(0).await?;
+                println!("! Target \"{}\" still doesn't exist", addr_req.peer_target());
+                AddressInfo::empty().write_to_stream(&mut socket).await?;
             }
         };
 

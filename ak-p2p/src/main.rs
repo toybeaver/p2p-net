@@ -1,55 +1,31 @@
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
-use std::{net::SocketAddr, str::FromStr};
+use tokio::net::{TcpListener, TcpStream};
+use std::net::SocketAddr;
+use ak_lib::{AddressInfo, AddressRequest, StreamObject};
 
 const DEFAULT_SV_ADDR: &str = "0.0.0.0:3000";
-
-trait P2pExtSocket {
-    async fn write_with_padding(&mut self, buf: &[u8], size: usize) -> std::io::Result<()>;
-}
-
-impl P2pExtSocket for TcpStream {
-    async fn write_with_padding(&mut self, buf: &[u8], size: usize) -> std::io::Result<()>
-    {
-        let padding = vec![0;size-buf.len()];
-        self.write_all(buf).await?;
-        self.write_all(&padding).await?;
-
-        Ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()>
 {
-    let mut self_addr: SocketAddr;
-    let mut target_addr: Option<SocketAddr>;
+    let self_addr: SocketAddr;
+    let target_addr: Option<SocketAddr>;
     {
         let mut stream = TcpStream::connect(DEFAULT_SV_ADDR).await?;
 
-        let name = String::from("ana");
-        stream.write_with_padding(name.as_bytes(), 50).await?;
+        AddressRequest::new("jansen", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbc")
+            .write_to_stream(&mut stream)
+            .await?;
 
-        let name = String::from("jansen");
-        stream.write_with_padding(name.as_bytes(), 50).await?;
-
-        let size = stream.read_u8().await?;
-        let mut buf = vec![0;size as usize];
-        stream.read_exact(&mut buf).await?;
-
-        let addr = String::from_utf8_lossy(&buf);
-        self_addr = SocketAddr::from_str(&addr).unwrap();
+        self_addr = AddressInfo::read_from_stream(&mut stream).await?.to_socket_addr();
         println!("My address: {}", self_addr);
 
-        let size = stream.read_u8().await?;
-        let mut buf = vec![0;size as usize];
-        stream.read_exact(&mut buf).await?;
+        let target_addr_info = AddressInfo::read_from_stream(&mut stream).await?;
 
-        if size == 0 {
+        if target_addr_info.is_empty() {
             println!("! Target doesn't exist yet!");
             target_addr = None;
         } else {
-            let addr = String::from_utf8_lossy(&buf);
-            target_addr = Some(SocketAddr::from_str(&addr).unwrap());
+            target_addr = Some(target_addr_info.to_socket_addr());
             println!("! Target found at addr: {}!", target_addr.unwrap());
         }
     }
